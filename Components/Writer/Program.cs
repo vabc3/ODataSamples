@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using Microsoft.OData.Core;
 using ODataSamples.Common;
 using ODataSamples.Common.Model;
+using System.Diagnostics;
+using System.Threading.Tasks;
+using System.IO;
 
 namespace ODataSamples.Writer
 {
@@ -136,11 +139,136 @@ namespace ODataSamples.Writer
 
         static void Main(string[] args)
         {
-            WriteTopLevelFeed();
-            WriteTopLevelEntry();
-            ContainmentTest.FeedWriteReadNormal();
-            WriteTopLevelEntityReferenceLinks();
-            WriteInnerEntityReferenceLink();
+            var st = new Stopwatch();
+            st.Start();
+                WriteFeedBench3();
+            Console.WriteLine(st.Elapsed);
+            //WriteTopLevelFeed();
+            //WriteTopLevelEntry();
+            //ContainmentTest.FeedWriteReadNormal();
+            //WriteTopLevelEntityReferenceLinks();
+            //WriteInnerEntityReferenceLink();
+        }
+
+        private static void WriteFeedBench1(bool enableFullValidation = true, int count = 400000)
+        {
+            Console.WriteLine("WriteFeedBench1, enableFullValidation:{0}", enableFullValidation);
+
+            var msg = ODataSamplesUtil.CreateMessage();
+
+            var settings = new ODataMessageWriterSettings(BaseSettings)
+            {
+                EnableFullValidation = enableFullValidation
+            };
+
+            using (var omw = new ODataMessageWriter((IODataResponseMessage)msg, settings, ExtModel.Model))
+            {
+                var writer = omw.CreateODataFeedWriter(ExtModel.PetSet);
+                writer.WriteStart(Feed);
+                for(var i = 0; i < count; i++) { 
+                writer.WriteStart(PetEntry);
+                writer.WriteEnd();
+              
+                }
+                writer.WriteEnd();
+            }
+
+            //Console.WriteLine(ODataSamplesUtil.MessageToString(msg));
+            Console.WriteLine(ODataSamplesUtil.MessageToString(msg).Length);
+        }
+
+        private static void WriteFeedBench2(bool enableFullValidation = true, int count = 400000)
+        {
+            Console.WriteLine("WriteFeedBench2, enableFullValidation:{0}", enableFullValidation);
+
+            var msg = ODataSamplesUtil.CreateMessage();
+            var s0 = (MemoryStream)msg.GetStream();
+            var settings = new ODataMessageWriterSettings(BaseSettings)
+            {
+                EnableFullValidation = enableFullValidation
+            };
+
+            var lc = new object();
+
+            using (var omw = new ODataMessageWriter((IODataResponseMessage)msg, settings, ExtModel.Model))
+            {
+                var writer = omw.CreateODataFeedWriter(ExtModel.PetSet);
+                writer.WriteStart(Feed);
+                Task[] ts = new Task[count];
+                for (var i = 0; i < count; i++)
+                {
+                    var b = i;
+                    ts[i] = Task.Run(() => {
+                        var msg1 = ODataSamplesUtil.CreateMessage();
+                        using (var omw1 = new ODataMessageWriter((IODataResponseMessage)msg1, settings, ExtModel.Model))
+                        {
+                            var writer1 = omw1.CreateODataEntryWriter(ExtModel.PetSet);
+                            writer1.WriteStart(PetEntry);
+                            writer1.WriteEnd();
+                            //Console.WriteLine(b);
+                            var s1 = msg1.GetStream();
+                            s1.Seek(0, SeekOrigin.Begin);
+                            lock (lc) { 
+                            s1.CopyTo(s0);
+                            }
+                        }
+                    });
+                }
+                Task.WaitAll(ts);
+                writer.WriteEnd();
+            }
+
+            //Console.WriteLine(ODataSamplesUtil.MessageToString(msg));
+            Console.WriteLine(ODataSamplesUtil.MessageToString(msg).Length);
+        }
+
+        private static void WriteFeedBench3(bool enableFullValidation = true, int count = 400000)
+        {
+            Console.WriteLine("WriteFeedBench3, enableFullValidation:{0}", enableFullValidation);
+
+            var msg = ODataSamplesUtil.CreateMessage();
+            var s0 = (MemoryStream)msg.GetStream();
+            var settings = new ODataMessageWriterSettings(BaseSettings)
+            {
+                EnableFullValidation = enableFullValidation
+            };
+
+            using (var omw = new ODataMessageWriter((IODataResponseMessage)msg, settings, ExtModel.Model))
+            {
+                var writer = omw.CreateODataFeedWriter(ExtModel.PetSet);
+                writer.WriteStart(Feed);
+                Task[] ts = new Task[count];
+                Stream[] mss = new Stream[count];
+                int complete = 0;
+
+                for (var i = 0; i < count; i++)
+                {
+                    var b = i;
+                    ts[i] = Task.Run(() => {
+                        var msg1 = ODataSamplesUtil.CreateMessage();
+                        using (var omw1 = new ODataMessageWriter((IODataResponseMessage)msg1, settings, ExtModel.Model))
+                        {
+                            var writer1 = omw1.CreateODataEntryWriter(ExtModel.PetSet);
+                            writer1.WriteStart(PetEntry);
+                            writer1.WriteEnd();
+                            //Console.WriteLine(b);
+                            var s1 = msg1.GetStream();
+                            s1.Seek(0, SeekOrigin.Begin);
+                            mss[b] = s1;
+                        }
+                    });
+                }
+                Task.WaitAll(ts);
+                for (var i = 0; i < count; i++)
+                {
+                    mss[i].CopyTo(s0);
+                }
+
+                writer.WriteEnd();
+            }
+
+            //Console.WriteLine(ODataSamplesUtil.MessageToString(msg));
+            Console.WriteLine(ODataSamplesUtil.MessageToString(msg).Length);
         }
 
         private static void WriteTopLevelFeed(bool enableFullValidation = true)
